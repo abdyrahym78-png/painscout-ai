@@ -1,0 +1,5 @@
+{
+    "keywords": ["saas", "auth", "boilerplate", "payment", "stripe", "launch", "database", "api", "slow", "problem", "error"],
+    "max_stories": 30,
+    "output_format": "json"
+}
