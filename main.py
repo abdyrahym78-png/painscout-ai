@@ -1,6 +1,9 @@
 import requests
 import json
 import os
+import logging
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 def load_config():
     if os.path.exists("config.json"):
@@ -8,76 +11,63 @@ def load_config():
             with open("config.json", "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            print(f"[-] Ошибка при чтении config.json: {e}. Используются настройки по умолчанию.")
-    return {"keywords": ["saas", "auth", "boilerplate"], "max_stories": 20}
+            logging.error(f"Ошибка при чтении config.json: {e}. Используются настройки по умолчанию.")
+    return {"keywords": ["saas", "auth", "boilerplate", "problem", "error"], "max_stories": 30}
 
-def run_pain_scout():
+def fetch_top_stories(limit=30):
+    url = "https://hacker-news.firebaseio.com/v0/topstories.json?print=json"
+    try:
+        logging.info("Подключение к Hacker News API...")
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        return response.json()[:limit]
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Ошибка при получении списка историй: {e}")
+        return []
+
+def fetch_story_details(story_id):
+    url = f"https://hacker-news.firebaseio.com/v0/item/{story_id}.json?print=json"
+    try:
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logging.warning(f"Не удалось загрузить историю ID {story_id}: {e}")
+        return None
+
+def analyze_pains():
     print("=" * 60)
     print(" 🚀 PainScout AI — Автоматический скаут потребностей разработчиков")
     print("=" * 60)
     
     config = load_config()
     keywords = config.get("keywords", [])
-    max_stories = config.get("max_stories", 20)
+    max_stories = config.get("max_stories", 30)
     
-    url = "https://hacker-news.firebaseio.com/v0/topstories.json?print=json"
-    
-    try:
-        print("[+] Подключение к Hacker News API...")
-        res = requests.get(url, timeout=10)
-        res.raise_for_status()
-        story_ids = res.json()[:max_stories]
-    except requests.exceptions.HTTPError as http_err:
-        print(f"[-] HTTP ошибка при обращении к API: {http_err} (Код ответа: {res.status_code})")
-        return
-    except requests.exceptions.ConnectionError as conn_err:
-        print(f"[-] Ошибка соединения с сетью: {conn_err}")
-        return
-    except requests.exceptions.Timeout as timeout_err:
-        print(f"[-] Превышено время ожидания запроса (таймаут): {timeout_err}")
-        return
-    except requests.exceptions.RequestException as req_err:
-        print(f"[-] Произошла ошибка запроса: {req_err}")
-        return
-    except Exception as e:
-        print(f"[-] Непредвиденная ошибка: {e}")
+    story_ids = fetch_top_stories(max_stories)
+    if not story_ids:
+        logging.error("Не удалось получить список историй или список пуст.")
         return
 
     pains_found = []
     print(f"[+] Анализируем топ-{len(story_ids)} тем на наличие болей разработчиков...\n")
     
     for s_id in story_ids:
-        item_url = f"https://hacker-news.firebaseio.com/v0/item/{s_id}.json?print=json"
-        try:
-            item_res = requests.get(item_url, timeout=5)
-            item_res.raise_for_status()
-            item = item_res.json()
-            if item and "title" in item:
-                title = item["title"]
-                lower_title = title.lower()
-                
-                matched_kw = [kw for kw in keywords if kw in lower_title]
-                if matched_kw:
-                    print(f"  [🎯 Найдена боль] {title}")
-                    pains_found.append({
-                        "id": s_id,
-                        "title": title,
-                        "url": item.get("url", f"https://news.ycombinator.com/item?id={s_id}"),
-                        "matched_keywords": matched_kw,
-                        "suggested_offer": "Идеально подходит для продвижения готового SaaS-шаблона или утилиты."
-                    })
-        except requests.exceptions.HTTPError as http_err:
-            print(f"  [!] HTTP ошибка для элемента {s_id}: {http_err}")
-            continue
-        except requests.exceptions.ConnectionError:
-            print(f"  [!] Ошибка соединения при получении элемента {s_id}")
-            continue
-        except requests.exceptions.Timeout:
-            print(f"  [!] Таймаут при получении элемента {s_id}")
-            continue
-        except Exception as e:
-            print(f"  [!] Ошибка обработки элемента {s_id}: {e}")
-            continue
+        item = fetch_story_details(s_id)
+        if item and "title" in item:
+            title = item["title"]
+            lower_title = title.lower()
+            
+            matched_kw = [kw for kw in keywords if kw in lower_title]
+            if matched_kw:
+                print(f"  [🎯 Найдена боль] {title}")
+                pains_found.append({
+                    "id": s_id,
+                    "title": title,
+                    "url": item.get("url", f"https://news.ycombinator.com/item?id={s_id}"),
+                    "matched_keywords": matched_kw,
+                    "suggested_offer": "Идеально подходит для продвижения готового SaaS-шаблона или утилиты."
+                })
 
     print("\n" + "=" * 60)
     print(f"[✓] Сканирование завершено. Выявлено релевантных болей: {len(pains_found)}")
@@ -92,4 +82,4 @@ def run_pain_scout():
     print("=" * 60)
 
 if __name__ == "__main__":
-    run_pain_scout()
+    analyze_pains()
