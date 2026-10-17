@@ -1,66 +1,64 @@
-import requests
 import json
-import os
+import logging
+import requests
 
-def load_config():
-    if os.path.exists("config.json"):
-        with open("config.json", "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"keywords": ["saas", "auth", "boilerplate"], "max_stories": 20}
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-def run_pain_scout():
-    print("=" * 60)
-    print(" 🚀 PainScout AI — Автоматический скаут потребностей разработчиков")
-    print("=" * 60)
-    
-    config = load_config()
-    keywords = config.get("keywords", [])
-    max_stories = config.get("max_stories", 20)
-    
-    url = "https://hacker-news.firebaseio.com/v0/topstories.json?print=json"
-    
+KEYWORDS = [
+    "pain", "problem", "hate", "struggle", "frustrated", "issue", 
+    "broken", "slow", "hard to", "annoying", "difficult"
+]
+
+def fetch_top_stories(limit=50):
+    url = "https://hacker-news.firebaseio.com/v0/topstories.json"
     try:
-        print("[+] Подключение к Hacker News API...")
-        res = requests.get(url, timeout=10)
-        story_ids = res.json()[:max_stories]
-    except Exception as e:
-        print(f"[-] Ошибка сети: {e}")
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        return response.json()[:limit]
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Ошибка при получении списка историй: {e}")
+        return []
+
+def fetch_story_details(story_id):
+    url = f"https://hacker-news.firebaseio.com/v0/item/{story_id}.json"
+    try:
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logging.warning(f"Не удалось загрузить историю ID {story_id}: {e}")
+        return None
+
+def analyze_pains():
+    logging.info("Сканирование Hacker News...")
+    story_ids = fetch_top_stories()
+    if not story_ids:
+        logging.error("Не удалось получить список историй или список пуст.")
         return
 
-    pains_found = []
-    print(f"[+] Анализируем топ-{len(story_ids)} тем на наличие болей разработчиков...\n")
-    
+    report = []
     for s_id in story_ids:
-        item_url = f"https://hacker-news.firebaseio.com/v0/item/{s_id}.json?print=json"
-        try:
-            item_res = requests.get(item_url, timeout=5)
-            item = item_res.json()
-            if item and "title" in item:
-                title = item["title"]
-                lower_title = title.lower()
-                
-                matched_kw = [kw for kw in keywords if kw in lower_title]
-                if matched_kw:
-                    print(f"  [🎯 Найдена боль] {title}")
-                    pains_found.append({
-                        "id": s_id,
-                        "title": title,
-                        "url": item.get("url", f"https://news.ycombinator.com/item?id={s_id}"),
-                        "matched_keywords": matched_kw,
-                        "suggested_offer": "Идеально подходит для продвижения готового SaaS-шаблона или утилиты."
-                    })
-        except Exception:
+        story = fetch_story_details(s_id)
+        if not story or "title" not in story:
             continue
 
-    print("\n" + "=" * 60)
-    print(f"[✓] Сканирование завершено. Выявлено релевантных болей: {len(pains_found)}")
-    
-    output_file = "developer_pains_report.json"
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(pains_found, f, indent=4, ensure_ascii=False)
-        
-    print(f"[+] Отчет успешно сохранен в файл: {output_file}")
-    print("=" * 60)
+        title = story["title"].lower()
+        if any(keyword in title for keyword in KEYWORDS):
+            report.append({
+                "id": story.get("id"),
+                "title": story.get("title"),
+                "url": story.get("url", f"https://news.ycombinator.com/item?id={s_id}"),
+                "score": story.get("score", 0),
+                "comments": story.get("descendants", 0)
+            })
+
+    output_filename = "developer_pains_report.json"
+    try:
+        with open(output_filename, "w", encoding="utf-8") as f:
+            json.dump(report, f, ensure_ascii=False, indent=2)
+        logging.info(f"Сканирование завершено! Найдено записей: {len(report)}. Отчет сохранен в {output_filename}")
+    except IOError as e:
+        logging.error(f"Ошибка при сохранении отчета: {e}")
 
 if __name__ == "__main__":
-    run_pain_scout()
+    analyze_pains()
